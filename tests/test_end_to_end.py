@@ -22,7 +22,8 @@ def test_analyze_report_and_archive_round_trip(tmp_path: Path) -> None:
     (project / "lib").mkdir(parents=True)
     (project / "lib" / "main.dart").write_bytes(source.read_bytes())
     (project / "project-generation-report.json").write_text(
-        json.dumps(result.to_dict()), encoding="utf-8"
+        json.dumps(result.to_dict()),
+        encoding="utf-8",
     )
 
     archive_path = create_project_zip(project, tmp_path / "generated.zip")
