@@ -1,4 +1,3 @@
-
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -64,6 +63,19 @@ def test_generation_preserves_source_and_writes_report(
         project = Path(command[-1])
         app = project / "android" / "app"
         app.mkdir(parents=True)
+
+        # Create the Android MainActivity required by the generator.
+        activity_dir = (
+            app / "src" / "main" / "kotlin" / "com" / "example" / "old"
+        )
+        activity_dir.mkdir(parents=True)
+        (activity_dir / "MainActivity.kt").write_text(
+            "package com.example.old\n\n"
+            "import io.flutter.embedding.android.FlutterActivity\n\n"
+            "class MainActivity : FlutterActivity()\n",
+            encoding="utf-8",
+        )
+
         (app / "build.gradle.kts").write_text(
             "android {\n"
             '    namespace = "com.example.old"\n'
@@ -73,6 +85,7 @@ def test_generation_preserves_source_and_writes_report(
             "}\n",
             encoding="utf-8",
         )
+
         (project / "lib").mkdir()
         (project / "pubspec.yaml").write_text(
             "name: generated_app\n"
@@ -91,6 +104,7 @@ def test_generation_preserves_source_and_writes_report(
             "  uses-material-design: true\n",
             encoding="utf-8",
         )
+
         return SimpleNamespace(returncode=0, stdout="ok", stderr="")
 
     monkeypatch.setattr(
