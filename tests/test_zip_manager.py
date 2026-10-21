@@ -13,7 +13,8 @@ def test_creates_and_verifies_archive(tmp_path: Path) -> None:
     (project / "README.md").write_text("Hello", encoding="utf-8")
     (project / "lib").mkdir()
     (project / "lib" / "main.dart").write_text(
-        "void main() {}", encoding="utf-8"
+        "void main() {}",
+        encoding="utf-8",
     )
 
     archive_path = tmp_path / "output.zip"
@@ -31,7 +32,10 @@ def test_excludes_python_caches(tmp_path: Path) -> None:
     cache = project / "__pycache__"
     cache.mkdir(parents=True)
     (cache / "junk.pyc").write_bytes(b"junk")
-    (project / "main.dart").write_text("void main() {}", encoding="utf-8")
+    (project / "main.dart").write_text(
+        "void main() {}",
+        encoding="utf-8",
+    )
 
     archive_path = tmp_path / "output.zip"
     create_project_zip(project, archive_path)
@@ -51,7 +55,36 @@ def test_rejects_empty_project(tmp_path: Path) -> None:
 def test_rejects_destination_inside_project(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
-    (project / "main.dart").write_text("void main() {}", encoding="utf-8")
+    (project / "main.dart").write_text(
+        "void main() {}",
+        encoding="utf-8",
+    )
 
     with pytest.raises(ValueError, match="outside"):
         create_project_zip(project, project / "nested.zip")
+
+
+def test_excludes_sensitive_files(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+
+    (project / "main.dart").write_text("void main() {}", encoding="utf-8")
+    (project / ".env").write_text("SECRET=value", encoding="utf-8")
+    (project / "key.properties").write_text(
+        "storePassword=secret",
+        encoding="utf-8",
+    )
+    (project / "release.jks").write_bytes(b"private signing material")
+    (project / "google-services.json").write_text("{}", encoding="utf-8")
+
+    archive_path = tmp_path / "output.zip"
+    create_project_zip(project, archive_path)
+
+    with zipfile.ZipFile(archive_path) as archive:
+        names = set(archive.namelist())
+
+    assert "project/main.dart" in names
+    assert "project/.env" not in names
+    assert "project/key.properties" not in names
+    assert "project/release.jks" not in names
+    assert "project/google-services.json" not in names
