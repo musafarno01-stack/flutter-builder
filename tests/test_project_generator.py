@@ -1,6 +1,5 @@
 
 import json
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -66,12 +65,12 @@ def test_generation_preserves_source_and_writes_report(
         app = project / "android" / "app"
         app.mkdir(parents=True)
         (app / "build.gradle.kts").write_text(
-            'android {\n'
+            "android {\n"
             '    namespace = "com.example.old"\n'
-            '    defaultConfig {\n'
+            "    defaultConfig {\n"
             '        applicationId = "com.example.old"\n'
-            '    }\n'
-            '}\n',
+            "    }\n"
+            "}\n",
             encoding="utf-8",
         )
         (project / "lib").mkdir()
