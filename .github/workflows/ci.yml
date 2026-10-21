@@ -37,6 +37,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
 
+      - name: Format Python files
+        run: ruff format .
+
       - name: Check Python formatting
         run: ruff format --check .
 
@@ -49,7 +52,7 @@ jobs:
       - name: Verify application package
         run: python -c "import flutter_project_maker; print(flutter_project_maker.__version__)"
 
-      - name: Upload pytest cache on failure
+      - name: Upload pytest diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
