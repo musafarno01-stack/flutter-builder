@@ -45,13 +45,16 @@ def validate_application_id(application_id: str) -> str:
     return application_id
 
 
-def _patch_android_application_id(project: Path, application_id: str) -> None:
-    """Patch generated Gradle namespace/application ID without replacing files."""
+def _patch_android_application_id(
+    project: Path, application_id: str
+) -> None:
+    """Update Android namespace and applicationId in the generated Gradle file."""
     candidates = list((project / "android" / "app").glob("build.gradle*"))
     if not candidates:
         raise GenerationError("Flutter template has no Android app Gradle file.")
 
-    found = False
+    found_keys: set[str] = set()
+
     for path in candidates:
         text = path.read_text(encoding="utf-8")
         updated = text
@@ -60,18 +63,87 @@ def _patch_android_application_id(project: Path, application_id: str) -> None:
             pattern = rf'(\b{key}\s*[=(]\s*["\'])[^"\']+(["\'])'
             updated, count = re.subn(
                 pattern,
-                lambda match: match.group(1) + application_id + match.group(2),
+                lambda match: match.group(1)
+                + application_id
+                + match.group(2),
                 updated,
             )
-            found = found or count > 0
+            if count:
+                found_keys.add(key)
 
         if updated != text:
             path.write_text(updated, encoding="utf-8")
 
-    if not found:
+    if not {"namespace", "applicationId"}.issubset(found_keys):
         raise GenerationError(
-            "Could not safely locate namespace/applicationId in generated Gradle files."
+            "Could not safely locate both namespace and applicationId "
+            "in the generated Android Gradle configuration."
         )
+
+
+def _patch_android_activity_package(
+    project: Path, application_id: str
+) -> None:
+    """Move and update MainActivity so its package matches the application ID."""
+    android_main = project / "android" / "app" / "src" / "main"
+
+    activities = [
+        *android_main.rglob("MainActivity.kt"),
+        *android_main.rglob("MainActivity.java"),
+    ]
+
+    if not activities:
+        raise GenerationError(
+            "No MainActivity.kt or MainActivity.java was found in the "
+            "generated Android template."
+        )
+
+    if len(activities) != 1:
+        raise GenerationError(
+            "Expected exactly one Android MainActivity; refusing an ambiguous edit."
+        )
+
+    activity = activities[0]
+    is_java = activity.suffix == ".java"
+    source = activity.read_text(encoding="utf-8")
+
+    package_pattern = re.compile(r"(?m)^package\s+[\w.]+\s*;?\s*$")
+    replacement = f"package {application_id}" + (";" if is_java else "")
+    updated, count = package_pattern.subn(replacement, source, count=1)
+
+    if count != 1:
+        raise GenerationError(
+            f"Could not safely update the package declaration in {activity.name}."
+        )
+
+    language_dir = android_main / ("java" if is_java else "kotlin")
+    destination = language_dir.joinpath(*application_id.split("."), activity.name)
+
+    # Resolve the destination and ensure it remains inside the Android source tree.
+    source_root = android_main.resolve()
+    resolved_destination = destination.resolve()
+    if not resolved_destination.is_relative_to(source_root):
+        raise GenerationError("Android activity destination escapes the source tree.")
+
+    if destination.exists() and destination.resolve() != activity.resolve():
+        raise GenerationError(
+            f"Refusing to overwrite an existing Android activity: {destination}"
+        )
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(updated, encoding="utf-8")
+
+    if destination.resolve() != activity.resolve():
+        activity.unlink()
+
+    # Remove empty old package directories only. Never remove nonempty directories.
+    current = activity.parent
+    while current != language_dir and current.is_relative_to(language_dir):
+        try:
+            current.rmdir()
+        except OSError:
+            break
+        current = current.parent
 
 
 def generate_project(
@@ -80,7 +152,7 @@ def generate_project(
     project_name: str,
     application_id: str,
 ) -> tuple[Path, AnalysisResult]:
-    """Generate a project in a new directory and return its path and analysis."""
+    """Generate a new Android project without overwriting existing output."""
     source = Path(source_file).expanduser().resolve(strict=True)
     parent = Path(output_parent).expanduser().resolve()
     name = validate_project_name(project_name)
@@ -89,29 +161,30 @@ def generate_project(
     if source.suffix.lower() != ".dart" or not source.is_file():
         raise ValueError("Choose one existing .dart source file.")
 
-    # Analyze before creating anything. Never execute uploaded Dart code.
     analysis = analyze_dart(source)
-
     flutter = shutil.which("flutter")
+
     if not flutter:
         raise GenerationError(
             "Flutter CLI was not found. Install Flutter and add its bin directory "
-            "to PATH. This initial generator requires the local CLI."
+            "to PATH. This generator currently requires the local Flutter CLI."
         )
 
     parent.mkdir(parents=True, exist_ok=True)
     destination = parent / name
+
     if destination.exists():
         raise FileExistsError(
             f"Output already exists: {destination}. Choose another name or location."
         )
 
-    # Read source bytes before generation so source data stays unchanged.
     original_bytes = source.read_bytes()
 
-    with tempfile.TemporaryDirectory(prefix="flutter_project_maker_",
-                                     dir=parent) as temp_dir:
+    with tempfile.TemporaryDirectory(
+        prefix="flutter_project_maker_", dir=parent
+    ) as temp_dir:
         staging = Path(temp_dir) / name
+
         command = [
             flutter,
             "create",
@@ -150,28 +223,27 @@ def generate_project(
         (lib / "main.dart").write_bytes(original_bytes)
 
         _patch_android_application_id(staging, app_id)
+        _patch_android_activity_package(staging, app_id)
 
         (staging / "assets" / "images").mkdir(parents=True, exist_ok=True)
         (staging / "assets" / "fonts").mkdir(parents=True, exist_ok=True)
 
         pubspec_path = staging / "pubspec.yaml"
         try:
-            pubspec = yaml.safe_load(pubspec_path.read_text(encoding="utf-8"))
+            pubspec = yaml.safe_load(
+                pubspec_path.read_text(encoding="utf-8")
+            )
         except (OSError, yaml.YAMLError) as exc:
             raise GenerationError(f"Generated pubspec.yaml is invalid: {exc}") from exc
 
         if not isinstance(pubspec, dict):
             raise GenerationError("Generated pubspec.yaml has an unexpected structure.")
 
-        # Do not invent versions for imported third-party packages.
         pubspec["name"] = name
         pubspec_path.write_text(
             yaml.safe_dump(pubspec, sort_keys=False, allow_unicode=True),
             encoding="utf-8",
         )
-
-        unresolved = list(analysis.unresolved_local_imports)
-        missing_assets = list(analysis.asset_references)
 
         report = {
             "generator": "Flutter Project Maker",
@@ -184,19 +256,19 @@ def generate_project(
             "validation": {
                 "flutter_create": "passed",
                 "source_copy": (lib / "main.dart").read_bytes() == original_bytes,
-                "pubspec_yaml": "passed",
-                "third_party_dependency_resolution": (
-                    "not_performed; review package imports"
-                ),
-                "flutter_analyze": "not_performed",
-                "apk_or_aab_build": "not_performed",
+                "pubspec_yaml": "parsed successfully",
+                "android_gradle_application_id": "updated",
+                "android_activity_package": "updated",
+                "third_party_dependency_resolution": "not performed",
+                "flutter_analyze": "not performed",
+                "apk_or_aab_build": "not performed",
             },
-            "unresolved_local_imports": unresolved,
-            "asset_references_requiring_review": missing_assets,
+            "unresolved_local_imports": analysis.unresolved_local_imports,
+            "asset_references_requiring_review": analysis.asset_references,
             "warnings": [
-                "Generation uses the locally installed Flutter CLI, not a bundled template.",
-                "Third-party package versions have not been resolved.",
-                "Only the supplied Dart file is copied; missing application files are not fabricated.",
+                "Generation uses the locally installed Flutter CLI.",
+                "Third-party dependency versions have not been resolved.",
+                "Only the supplied Dart file is copied; missing logic is not fabricated.",
                 "Flutter analyze and dependency resolution have not been run.",
             ],
         }
@@ -235,7 +307,7 @@ No APK or AAB was built during generation.
 """
         (staging / "README.md").write_text(readme, encoding="utf-8")
 
-        # Rename only after all required files are written.
+        # Publish only after generation has succeeded in the staging directory.
         staging.rename(destination)
 
     return destination, analysis
