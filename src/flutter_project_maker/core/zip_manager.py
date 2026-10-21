@@ -8,7 +8,6 @@ import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
-
 EXCLUDED_PARTS = {
     "__pycache__",
     ".pytest_cache",
@@ -45,16 +44,10 @@ def _should_exclude(relative: Path) -> bool:
 
     filename = relative.name.lower()
 
-    if filename in SENSITIVE_NAMES:
+    if filename in SENSITIVE_NAMES or filename.startswith(".env."):
         return True
 
-    if filename.startswith(".env."):
-        return True
-
-    if Path(filename).suffix.lower() in SENSITIVE_SUFFIXES:
-        return True
-
-    return False
+    return Path(filename).suffix.lower() in SENSITIVE_SUFFIXES
 
 
 def create_project_zip(
@@ -130,16 +123,12 @@ def create_project_zip(
                     f"ZIP verification failed: {bad_member}"
                 )
 
-            actual = set(archive.namelist())
-
-            if actual != expected:
+            if set(archive.namelist()) != expected:
                 raise zipfile.BadZipFile(
                     "ZIP contents do not match the filtered project files."
                 )
 
-        # Replacing the target is atomic on the same filesystem.
         os.replace(temporary, target)
         return target
-
     finally:
         temporary.unlink(missing_ok=True)
