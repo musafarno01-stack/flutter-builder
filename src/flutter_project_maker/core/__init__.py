@@ -1,0 +1,2 @@
+
+"""Core project-generation services."""
