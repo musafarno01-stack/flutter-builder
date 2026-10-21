@@ -14,11 +14,8 @@ import yaml
 
 from flutter_project_maker.core.analyzer import AnalysisResult, analyze_dart
 
-
 PROJECT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,48}$")
-APP_ID_RE = re.compile(
-    r"^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)+$"
-)
+APP_ID_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)+$")
 
 
 class GenerationError(RuntimeError):
@@ -26,6 +23,7 @@ class GenerationError(RuntimeError):
 
 
 def validate_project_name(name: str) -> str:
+    """Validate the Dart package/project name."""
     name = name.strip()
     if not PROJECT_NAME_RE.fullmatch(name):
         raise ValueError(
@@ -36,6 +34,7 @@ def validate_project_name(name: str) -> str:
 
 
 def validate_application_id(application_id: str) -> str:
+    """Validate the Android application ID."""
     application_id = application_id.strip()
     if not APP_ID_RE.fullmatch(application_id):
         raise ValueError(
@@ -45,10 +44,8 @@ def validate_application_id(application_id: str) -> str:
     return application_id
 
 
-def _patch_android_application_id(
-    project: Path, application_id: str
-) -> None:
-    """Update Android namespace and applicationId in the generated Gradle file."""
+def _patch_android_application_id(project: Path, application_id: str) -> None:
+    """Update Android namespace and applicationId in the Gradle file."""
     candidates = list((project / "android" / "app").glob("build.gradle*"))
     if not candidates:
         raise GenerationError("Flutter template has no Android app Gradle file.")
@@ -81,12 +78,9 @@ def _patch_android_application_id(
         )
 
 
-def _patch_android_activity_package(
-    project: Path, application_id: str
-) -> None:
-    """Move and update MainActivity so its package matches the application ID."""
+def _patch_android_activity_package(project: Path, application_id: str) -> None:
+    """Move and update MainActivity to match the application ID."""
     android_main = project / "android" / "app" / "src" / "main"
-
     activities = [
         *android_main.rglob("MainActivity.kt"),
         *android_main.rglob("MainActivity.java"),
@@ -119,7 +113,6 @@ def _patch_android_activity_package(
     language_dir = android_main / ("java" if is_java else "kotlin")
     destination = language_dir.joinpath(*application_id.split("."), activity.name)
 
-    # Resolve the destination and ensure it remains inside the Android source tree.
     source_root = android_main.resolve()
     resolved_destination = destination.resolve()
     if not resolved_destination.is_relative_to(source_root):
@@ -136,7 +129,6 @@ def _patch_android_activity_package(
     if destination.resolve() != activity.resolve():
         activity.unlink()
 
-    # Remove empty old package directories only. Never remove nonempty directories.
     current = activity.parent
     while current != language_dir and current.is_relative_to(language_dir):
         try:
@@ -184,7 +176,6 @@ def generate_project(
         prefix="flutter_project_maker_", dir=parent
     ) as temp_dir:
         staging = Path(temp_dir) / name
-
         command = [
             flutter,
             "create",
@@ -230,9 +221,7 @@ def generate_project(
 
         pubspec_path = staging / "pubspec.yaml"
         try:
-            pubspec = yaml.safe_load(
-                pubspec_path.read_text(encoding="utf-8")
-            )
+            pubspec = yaml.safe_load(pubspec_path.read_text(encoding="utf-8"))
         except (OSError, yaml.YAMLError) as exc:
             raise GenerationError(f"Generated pubspec.yaml is invalid: {exc}") from exc
 
@@ -307,7 +296,6 @@ No APK or AAB was built during generation.
 """
         (staging / "README.md").write_text(readme, encoding="utf-8")
 
-        # Publish only after generation has succeeded in the staging directory.
         staging.rename(destination)
 
     return destination, analysis
