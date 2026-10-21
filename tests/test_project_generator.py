@@ -31,7 +31,14 @@ def test_valid_application_id() -> None:
 
 @pytest.mark.parametrize(
     "app_id",
-    ["", "example", ".example.app", "com..app", "../unsafe", "com.example bad.app"],
+    [
+        "",
+        "example",
+        ".example.app",
+        "com..app",
+        "../unsafe",
+        "com.example bad.app",
+    ],
 )
 def test_invalid_application_id(app_id: str) -> None:
     with pytest.raises(ValueError):
@@ -39,7 +46,8 @@ def test_invalid_application_id(app_id: str) -> None:
 
 
 def test_generation_preserves_source_and_writes_report(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = tmp_path / "original.dart"
     original = b"import 'package:flutter/material.dart';\nvoid main() {}\n"
@@ -54,7 +62,6 @@ def test_generation_preserves_source_and_writes_report(
     )
 
     def fake_run(command, **kwargs):
-        # Simulate the structure a Flutter CLI command would create.
         project = Path(command[-1])
         app = project / "android" / "app"
         app.mkdir(parents=True)
@@ -88,11 +95,15 @@ def test_generation_preserves_source_and_writes_report(
         return SimpleNamespace(returncode=0, stdout="ok", stderr="")
 
     monkeypatch.setattr(
-        "flutter_project_maker.core.project_generator.subprocess.run", fake_run
+        "flutter_project_maker.core.project_generator.subprocess.run",
+        fake_run,
     )
 
     project, analysis = generate_project(
-        source, output, "sample_app", "com.example.sample_app"
+        source,
+        output,
+        "sample_app",
+        "com.example.sample_app",
     )
 
     assert source.read_bytes() == original
@@ -102,18 +113,21 @@ def test_generation_preserves_source_and_writes_report(
     assert analysis.has_main
 
     report = json.loads(
-        (project / "project-generation-report.json").read_text(encoding="utf-8")
+        (project / "project-generation-report.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert report["validation"]["source_copy"] is True
 
-    gradle = (project / "android" / "app" / "build.gradle.kts").read_text(
-        encoding="utf-8"
-    )
+    gradle = (
+        project / "android" / "app" / "build.gradle.kts"
+    ).read_text(encoding="utf-8")
     assert gradle.count("com.example.sample_app") == 2
 
 
 def test_existing_project_is_not_overwritten(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = tmp_path / "main.dart"
     source.write_text("void main() {}", encoding="utf-8")
@@ -131,6 +145,11 @@ def test_existing_project_is_not_overwritten(
     )
 
     with pytest.raises(FileExistsError):
-        generate_project(source, output, "sample_app", "com.example.sample_app")
+        generate_project(
+            source,
+            output,
+            "sample_app",
+            "com.example.sample_app",
+        )
 
     assert marker.read_text(encoding="utf-8") == "keep me"
