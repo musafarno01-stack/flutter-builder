@@ -1,0 +1,49 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main, master, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install application and build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install pyinstaller
+
+      - name: Create launcher
+        shell: pwsh
+        run: |
+          @'
+          from flutter_project_maker.main import main
+
+          if __name__ == "__main__":
+              main()
+          '@ | Set-Content -Encoding utf8 build_exe.py
+
+      - name: Build EXE
+        run: |
+          python -m PyInstaller --noconfirm --clean --name FlutterProjectMaker --collect-all PySide6 --collect-all shiboken6 build_exe.py
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlutterProjectMaker-Windows
+          path: dist/FlutterProjectMaker.exe
+          if-no-files-found: error
+          retention-days: 14
