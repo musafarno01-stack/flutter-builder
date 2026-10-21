@@ -10,7 +10,9 @@ permissions:
 
 jobs:
   build:
+    name: Package Windows executable
     runs-on: windows-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,13 +22,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install application and build tools
+      - name: Install application
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e .
           python -m pip install pyinstaller
 
-      - name: Create launcher
+      - name: Verify application entry point
+        shell: pwsh
+        run: |
+          python -c "from flutter_project_maker.main import main; print('Entry point imported successfully:', main)"
+
+      - name: Create executable launcher
         shell: pwsh
         run: |
           @'
@@ -36,11 +44,20 @@ jobs:
               main()
           '@ | Set-Content -Encoding utf8 build_exe.py
 
-      - name: Build EXE
+      - name: Build executable
+        shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --name FlutterProjectMaker --collect-all PySide6 --collect-all shiboken6 build_exe.py
+          python -m PyInstaller --noconfirm --clean --onefile --name FlutterProjectMaker build_exe.py
 
-      - name: Upload EXE
+      - name: Verify executable exists
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -Recurse
+          if (!(Test-Path "dist/FlutterProjectMaker.exe")) {
+            throw "Executable was not created. Check the PyInstaller build log."
+          }
+
+      - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
           name: FlutterProjectMaker-Windows
